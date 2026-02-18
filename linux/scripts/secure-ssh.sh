@@ -18,6 +18,9 @@ USERNAME=$1
 # create user with home dir
 sudo useradd -m -s /bin/bash "$USERNAME"
 
+# make ssh dir
+sudo mkdir -p /home/$USERNAME/.ssh
+
 # copy key
 sudo cp ~/SYS-265-Logan-S/linux/public-keys/id_rsa.pub /home/$USERNAME/.ssh/authorized_keys
 
