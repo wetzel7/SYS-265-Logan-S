@@ -21,9 +21,9 @@ sudo useradd -m -s /bin/bash "$USERNAME"
 # make ssh dir and set perms
 sudo mkdir -p /home/$USERNAME/.ssh
 sudo chmod 700 /home/$USERNAME/.ssh
-cd /home/logan/Sys-265-Logan-S
+
 # copy key
-sudo cp SYS-265-Logan-S/linux/public-keys/id_rsa.pub /home/$USERNAME/.ssh/authorized_keys
+sudo cp $HOME/SYS-265-Logan-S/linux/public-keys/id_rsa.pub /home/$USERNAME/.ssh/authorized_keys
 
 # set perms
 sudo chmod 600 /home/$USERNAME/.ssh/authorized_keys && sudo chown -R $USERNAME:$USERNAME /home/$USERNAME/.ssh
@@ -36,4 +36,4 @@ else
 fi
 
 # restart ssh
-sudo systemctl restart sshd.service
+sudo systemctl restart ssh
