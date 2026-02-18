@@ -19,7 +19,7 @@ USERNAME=$1
 sudo useradd -m -s /bin/bash "$USERNAME"
 
 # copy key
-sudo cp SYS-265-Logan-S/linux/public-keys/id_rsa.pub /home/$USERNAME/.ssh/authorized_keys
+sudo cp ~/SYS-265-Logan-S/linux/public-keys/id_rsa.pub /home/$USERNAME/.ssh/authorized_keys
 
 # set perms
 sudo chmod 700 /home/$USERNAME/.ssh && sudo chmod 600 /home/$USERNAME/.ssh/authorized_keys && sudo chown -R $USERNAME:$USERNAME /home/$USERNAME/.ssh
