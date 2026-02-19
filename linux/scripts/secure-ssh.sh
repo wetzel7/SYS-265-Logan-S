@@ -15,7 +15,7 @@ fi
 USERNAME=$1
 
 # create user with home dir
-sudo useradd -m -s /home/$USERNAME /bin/bash "$USERNAME"
+sudo useradd -m -d /home/$USERNAME -s /bin/bash "$USERNAME"
 
 # make ssh dir
 sudo mkdir /home/$USERNAME/.ssh
