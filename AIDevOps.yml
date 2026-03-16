@@ -1,0 +1,246 @@
+###############################################################################
+# DELIVERABLE 01 - ANSIBLE PLAYBOOK (6 Selected Elements)
+#
+# Run all 6 elements:
+#   ansible-playbook spring_break_ansible_adventure.yml --tags "g01_sa1,g02_sa2,g04_sh1,g03_sh1,g04_gpo1,g04_gpo3"
+#
+# Run with --check first to test:
+#   ansible-playbook spring_break_ansible_adventure.yml --check --tags "g01_sa1,g02_sa2,g04_sh1,g03_sh1,g04_gpo1,g04_gpo3"
+###############################################################################
+
+
+# -- ELEMENT 1: System Administration - Create local user on Rocky hosts ------
+# Tag: g01_sa1
+# Targets: ansible01-logan, ansible02-logan
+# Creates a local user 'labuser' with a home directory, then verifies
+# the account exists via getent.
+# -----------------------------------------------------------------------------
+- name: "Group 01 | SA1 - Create local user on Rocky hosts"
+  hosts: rocky
+  become: true
+  tags:
+    - g01_sa1
+  tasks:
+    # Step 1: Create the user account with a home directory
+    - name: "G01-SA1 | Create user 'labuser' with home directory"
+      ansible.builtin.user:
+        name: labuser
+        state: present
+        shell: /bin/bash
+        create_home: true
+        comment: "Lab User for Spring Break exercises"
+      register: user_result
+
+    # Step 2: Debug - confirm the user was created or already exists
+    - name: "G01-SA1 | Debug - Show user creation result"
+      ansible.builtin.debug:
+        msg: >-
+          User 'labuser' status: {{ 'created' if user_result.changed else 'already exists' }}
+          on {{ inventory_hostname }}.
+
+    # Step 3: Verify user exists in /etc/passwd
+    - name: "G01-SA1 | Verify user exists via getent"
+      ansible.builtin.command:
+        cmd: getent passwd labuser
+      register: getent_result
+      changed_when: false
+      failed_when: getent_result.rc != 0
+
+    - name: "G01-SA1 | Debug - Show getent output"
+      ansible.builtin.debug:
+        msg: "{{ getent_result.stdout }}"
+
+
+# -- ELEMENT 2: System Administration - Create AD Organizational Unit ---------
+# Tag: g02_sa2
+# Targets: ad01-logan
+# Creates an OU called 'SpringBreakLab' in Active Directory using PowerShell.
+# Checks if it exists first to avoid errors on re-runs.
+# -----------------------------------------------------------------------------
+- name: "Group 02 | SA2 - Create an AD Organizational Unit on AD01"
+  hosts: ad01-logan
+  tags:
+    - g02_sa2
+  tasks:
+    # Step 1: Create an OU called "SpringBreakLab"
+    - name: "G02-SA2 | Create OU 'SpringBreakLab'"
+      ansible.windows.win_powershell:
+        script: |
+          Import-Module ActiveDirectory
+          $ouName = "SpringBreakLab"
+          $domain = (Get-ADDomain).DistinguishedName
+          $ouPath = "OU=$ouName,$domain"
+          try {
+              Get-ADOrganizationalUnit -Identity $ouPath -ErrorAction Stop
+              Write-Output "OU '$ouName' already exists."
+          } catch {
+              New-ADOrganizationalUnit -Name $ouName -Path $domain `
+                -ProtectedFromAccidentalDeletion $false
+              Write-Output "OU '$ouName' created successfully."
+          }
+      register: ou_result
+
+    - name: "G02-SA2 | Debug - OU creation result"
+      ansible.builtin.debug:
+        msg: "{{ ou_result.output }}"
+
+    # Step 2: Verify the OU is listed
+    - name: "G02-SA2 | Verify OU exists"
+      ansible.windows.win_powershell:
+        script: |
+          Import-Module ActiveDirectory
+          Get-ADOrganizationalUnit -Filter 'Name -eq "SpringBreakLab"' |
+            Select-Object Name, DistinguishedName |
+            Format-List
+      register: ou_verify
+
+    - name: "G02-SA2 | Debug - OU verification"
+      ansible.builtin.debug:
+        msg: "{{ ou_verify.output }}"
+
+
+# -- ELEMENT 3: System Hardening - Set SSH idle timeout on Rocky hosts --------
+# Tag: g04_sh1
+# Targets: ansible01-logan, ansible02-logan
+# Sets ClientAliveInterval to 300 seconds and ClientAliveCountMax to 0
+# so idle SSH sessions are terminated after 5 minutes. Validates config
+# before restarting sshd.
+# -----------------------------------------------------------------------------
+- name: "Group 04 | SH1 - Set SSH idle timeout on Rocky hosts"
+  hosts: rocky
+  become: true
+  tags:
+    - g04_sh1
+  tasks:
+    # Step 1: Set ClientAliveInterval to 300 seconds (5 min)
+    - name: "G04-SH1 | Set ClientAliveInterval to 300"
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?ClientAliveInterval'
+        line: 'ClientAliveInterval 300'
+        backup: true
+
+    # Step 2: Set ClientAliveCountMax to 0 (disconnect after 1 missed check)
+    - name: "G04-SH1 | Set ClientAliveCountMax to 0"
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?ClientAliveCountMax'
+        line: 'ClientAliveCountMax 0'
+
+    # Step 3: Validate and restart sshd
+    - name: "G04-SH1 | Validate sshd config"
+      ansible.builtin.command:
+        cmd: sshd -t
+      changed_when: false
+      register: sshd_check
+
+    - name: "G04-SH1 | Restart sshd"
+      ansible.builtin.systemd:
+        name: sshd
+        state: restarted
+      when: sshd_check.rc == 0
+
+    - name: "G04-SH1 | Debug - SSH timeout configured"
+      ansible.builtin.debug:
+        msg: "SSH idle timeout set to 300s on {{ inventory_hostname }}."
+
+
+# -- ELEMENT 4: System Hardening - Disable IPv6 on Rocky hosts ----------------
+# Tag: g03_sh1
+# Targets: ansible01-logan, ansible02-logan
+# Disables IPv6 via sysctl parameters to reduce network attack surface.
+# Verifies the change by reading /proc/sys.
+# -----------------------------------------------------------------------------
+- name: "Group 03 | SH1 - Disable IPv6 on Rocky hosts"
+  hosts: rocky
+  become: true
+  tags:
+    - g03_sh1
+  tasks:
+    # Step 1: Disable IPv6 via sysctl
+    - name: "G03-SH1 | Disable IPv6 - net.ipv6.conf.all.disable_ipv6"
+      ansible.posix.sysctl:
+        name: net.ipv6.conf.all.disable_ipv6
+        value: '1'
+        sysctl_set: true
+        state: present
+        reload: true
+
+    - name: "G03-SH1 | Disable IPv6 - net.ipv6.conf.default.disable_ipv6"
+      ansible.posix.sysctl:
+        name: net.ipv6.conf.default.disable_ipv6
+        value: '1'
+        sysctl_set: true
+        state: present
+        reload: true
+
+    # Step 2: Verify
+    - name: "G03-SH1 | Verify IPv6 is disabled"
+      ansible.builtin.command:
+        cmd: cat /proc/sys/net/ipv6/conf/all/disable_ipv6
+      register: ipv6_check
+      changed_when: false
+
+    - name: "G03-SH1 | Debug - IPv6 status"
+      ansible.builtin.debug:
+        msg: "IPv6 disabled on {{ inventory_hostname }}: {{ 'Yes' if ipv6_check.stdout == '1' else 'No' }}"
+
+
+# -- ELEMENT 5: AD DS GPO Hardening - Block Microsoft Store via registry ------
+# Tag: g04_gpo1
+# Targets: mgmt01-logan, wks01-logan
+# Sets RemoveWindowsStore registry value to prevent users from installing
+# unapproved applications. Applied via registry without GPMC.
+# -----------------------------------------------------------------------------
+- name: "Group 04 | GPO1 - Block Microsoft Store via registry"
+  hosts: mgmt01-logan,wks01-logan
+  tags:
+    - g04_gpo1
+  tasks:
+    # Step 1: Disable Microsoft Store via registry policy
+    - name: "G04-GPO1 | Disable Microsoft Store"
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\Policies\Microsoft\WindowsStore
+        name: RemoveWindowsStore
+        data: 1
+        type: dword
+      register: store_result
+
+    - name: "G04-GPO1 | Debug - Store restriction"
+      ansible.builtin.debug:
+        msg: >-
+          Microsoft Store on {{ inventory_hostname }}:
+          {{ 'Blocked' if store_result.changed else 'Already blocked' }}.
+
+
+# -- ELEMENT 6: AD DS GPO Hardening - Require password on wake from sleep ----
+# Tag: g04_gpo3
+# Targets: mgmt01-logan, wks01-logan
+# Sets ACSettingIndex and DCSettingIndex registry values to require password
+# re-authentication on wake for both AC and battery power scenarios.
+# Applied via registry without GPMC.
+# -----------------------------------------------------------------------------
+- name: "Group 04 | GPO3 - Require password on wake from sleep"
+  hosts: mgmt01-logan,wks01-logan
+  tags:
+    - g04_gpo3
+  tasks:
+    # Step 1: Require password on AC power wake
+    - name: "G04-GPO3 | Require password on wake (AC)"
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\Policies\Microsoft\Power\PowerSettings\0e796bdb-100d-47d6-a2d5-f7d2daa51f51
+        name: ACSettingIndex
+        data: 1
+        type: dword
+
+    # Step 2: Require password on battery wake
+    - name: "G04-GPO3 | Require password on wake (Battery)"
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\Policies\Microsoft\Power\PowerSettings\0e796bdb-100d-47d6-a2d5-f7d2daa51f51
+        name: DCSettingIndex
+        data: 1
+        type: dword
+
+    - name: "G04-GPO3 | Debug - Wake password requirement"
+      ansible.builtin.debug:
+        msg: "Password required on wake (AC+Battery) on {{ inventory_hostname }}."
